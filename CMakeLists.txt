@@ -6,6 +6,16 @@ project(tpu-perf)
 
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
+if (DEFINED ENV{TPUKERNEL_TOP})
+    set(TPUKERNEL_TOP $ENV{TPUKERNEL_TOP})
+    add_definitions(-DUSING_TPUKERNEL)
+endif()
+
+set(inc_dirs ${TPUKERNEL_TOP}/samples/include
+                ${TPUKERNEL_TOP}/samples/build
+        CACHE INTERNAL "")
+include_directories(${inc_dirs})
+
 find_package(sg REQUIRED)
 file(GLOB pipeline_srcs pipeline/*.cpp)
 add_library(pipeline SHARED ${pipeline_srcs} ${tool_srcs})
@@ -39,3 +49,9 @@ configure_file(cmake/bdist.sh.in bdist.sh)
 install(TARGETS pipeline LIBRARY DESTINATION .)
 install(FILES ${proto_srcs} DESTINATION .)
 install(SCRIPT ${CMAKE_SOURCE_DIR}/cmake/postinst.cmake)
+
+# set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DMY_DEBUG")
+# set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DMY_DEBUG")
+# SET(CMAKE_BUILD_TYPE Debug)
+# set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0")
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0")

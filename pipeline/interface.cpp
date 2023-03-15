@@ -6,6 +6,10 @@
 #include "SGLog.h"
 #include "interface.h"
 
+#if defined(USING_TPUKERNEL)
+#include "tpu_kernels.hpp"
+#endif
+
 using namespace bm;
 
 size_t dtype_len(unsigned int t) {
@@ -29,27 +33,14 @@ static size_t elem_num(const unsigned int* shape, unsigned int dims){
     return elem;
 }
 
-struct InputType {
-    bool release_inside = false;
-    unsigned int id = 0;
-    unsigned num = 0;
-    tensor_data_t* tensors = nullptr;
-};
-
-struct OutputType {
-    unsigned int id = 0;
-    unsigned num = 0;
-    tensor_data_t* tensors = nullptr;
-};
-
 bool preProcess(const InputType& input, const TensorVec& inTensors, ContextPtr ctx);
 bool postProcess(const InputType& input, const TensorVec& outTensors, OutputType& postOut, ContextPtr ctx);
 
 std::vector<DeviceId> globalDevices;
 using GeneralRunner = SGDevicePool<InputType, OutputType>;
 struct RunnerInfo {
-    RunnerInfo(const char* bmodel, unsigned int batch = 1):
-        task_id(INVALID_TASK_ID), runner(bmodel, preProcess, postProcess, globalDevices), status(bmodel), batch(batch) {
+    RunnerInfo(const char* bmodel, unsigned int batch = 1, const char *tpu_kernel = NULL):
+        task_id(INVALID_TASK_ID), runner(bmodel, preProcess, postProcess, globalDevices, tpu_kernel), status(bmodel), batch(batch) {
         runner.start();
         status.start();
     }
@@ -98,6 +89,13 @@ bool postProcess(const InputType& input, const TensorVec& outTensors, OutputType
     size_t outNum = outTensors.size();
     postOut.num = outNum;
     postOut.tensors = new tensor_data_t[outNum];
+#if defined(USING_TPUKERNEL)
+    tpu_kernel_function_t func_id = ctx->getKernelFuncId();
+    if (func_id != -1) {
+        function_map[ctx->kernel_name](outNum, outTensors, postOut, ctx);
+        return true;
+    }
+#endif
     for(size_t i=0; i<outNum; i++){
         postOut.tensors[i].dims = outTensors[i]->dims();
         for(size_t d=0; d<postOut.tensors[i].dims; d++){
@@ -112,16 +110,16 @@ bool postProcess(const InputType& input, const TensorVec& outTensors, OutputType
     return true;
 }
 
-unsigned int runner_start_with_batch(const char *bmodel, unsigned int batch) {
+unsigned int runner_start_with_batch(const char *bmodel, unsigned int batch, const char *tpu_kernel) {
     set_env_log_level();
     unsigned int runner_id = 0;
     while(globalRunnerInfos.count(runner_id)) runner_id++;
-    globalRunnerInfos[runner_id] = std::make_shared<RunnerInfo>(bmodel, batch);
+    globalRunnerInfos[runner_id] = std::make_shared<RunnerInfo>(bmodel, batch, tpu_kernel);
     return runner_id;
 }
 
 unsigned int runner_start(const char *bmodel) {
-    runner_start_with_batch(bmodel, 1);
+    runner_start_with_batch(bmodel, 1, NULL);
     return 0;
 }
 
@@ -301,4 +299,5 @@ void release_unsigned_pointer(unsigned *data)
 {
     delete[] data;
 }
+
 

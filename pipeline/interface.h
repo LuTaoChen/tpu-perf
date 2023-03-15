@@ -1,7 +1,8 @@
 #ifdef __cplusplus
 extern "C"{
 #endif
-
+#ifndef INTERFACE_H
+#define INTERFACE_H
 /*
 typedef enum bm_data_type_e {
   BM_FLOAT32 = 0,
@@ -24,9 +25,23 @@ struct tensor_data_t {
     unsigned char* data;
 };
 
+struct InputType {
+    bool release_inside = false;
+    unsigned int id = 0;
+    unsigned num = 0;
+    tensor_data_t* tensors = nullptr;
+};
+
+struct OutputType {
+    unsigned int id = 0;
+    unsigned num = 0;
+    tensor_data_t* tensors = nullptr;
+};
+
+
 unsigned int available_devices(unsigned int* devices, unsigned int maxNum);
 void runner_use_devices(const unsigned* device_ids, unsigned num);
-unsigned int runner_start_with_batch(const char *bmodel, unsigned int batch);
+unsigned int runner_start_with_batch(const char *bmodel, unsigned int batch, const char *tpu_kernel);
 unsigned int runner_start(const char* bmodel);
 void runner_stop(unsigned int runner_id);
 int runner_empty(unsigned int runner_id);
@@ -55,4 +70,5 @@ void release_unsigned_pointer(unsigned *data);
 
 #ifdef __cplusplus
 }
+#endif
 #endif
