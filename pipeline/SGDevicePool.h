@@ -11,10 +11,11 @@
 #include "bmlib_runtime.h"
 #include <string.h>
 
-#if defined(USING_TPUKERNEL) 
-#include "tpu_api_protocol.h"
-#include "kernel_module_data.h"
-#endif
+#define TPUKERNEL_DIR
+// #if defined(USING_TPUKERNEL) 
+// #include "tpu_api_protocol.h"
+// #include "kernel_module_data.h"
+// #endif
 namespace bm {
 
 extern const char* __phaseMap[];
@@ -24,10 +25,8 @@ private:
     std::vector<bm_device_mem_t> mem_to_free;
     void* preExtra;
     void* postExtra;
-#if defined(USING_TPUKERNEL) 
+    int kernel_func_id = -1;
     tpu_kernel_module_t tpu_module;
-    tpu_kernel_function_t kernel_func_id = -1;
-#endif
 public:
     DeviceId deviceId;
     bm_handle_t handle;
@@ -62,18 +61,18 @@ public:
     void setPostExtra(void* data){
         postExtra = data;
     }
-#if defined(USING_TPUKERNEL)
     void setTpuKernel(const char* kernel_name) {
-        const unsigned int *p = kernel_module_data;
-        size_t length = sizeof(kernel_module_data);
-        tpu_module = tpu_kernel_load_module(handle, (const char *)p, length);
-        kernel_func_id = tpu_kernel_get_function(handle, tpu_module, kernel_name);
+        char *kernel_dir = getenv("TPUKERNEL_DIR");
+        std::string kernel_dir_ = kernel_dir;
+        if (kernel_dir != nullptr) {
+            tpu_module = tpu_kernel_load_module_file(handle, (kernel_dir_ + "/libbm1684x_kernel_module.so").c_str());
+            kernel_func_id = tpu_kernel_get_function(handle, tpu_module, kernel_name);
+        }
         strcpy(this->kernel_name, kernel_name);
     }
     tpu_kernel_function_t getKernelFuncId() {
         return kernel_func_id;
     }
-#endif
 
     ~SGDeviceContext();
     void *getConfigData() const;
@@ -159,9 +158,7 @@ public:
         SGLOG(INFO, "USING DEVICES: %s", deviceStr.c_str());
         std::function<std::shared_ptr<ContextType>(size_t)>  contextInitializer = [&localDeviceIds, bmodel, tpu_kernel, this](size_t i) {
             auto context = std::make_shared<ContextType>(localDeviceIds[i], bmodel);
-#if defined(USING_TPUKERNEL)            
             if (tpu_kernel) context->setTpuKernel(tpu_kernel);
-#endif
             this->atomicBatchSize=context->getBatchSize();
             return context;
         };

@@ -10,10 +10,30 @@
 
 using namespace std;
 
+typedef unsigned long long u64;
+#define MAX_YOLO_INPUT_NUM 3
+#define MAX_YOLO_ANCHOR_NUM 3
+typedef struct {
+    u64 bottom_addr[MAX_YOLO_INPUT_NUM];
+    u64 top_addr;
+    u64 detected_num_addr;
+    int input_num;
+    int batch_num;
+    int hw_shape[MAX_YOLO_INPUT_NUM][2];
+    int num_classes;
+    int num_boxes;
+    int keep_top_k;
+    float nms_threshold;
+    float confidence_threshold;
+    float bias[MAX_YOLO_INPUT_NUM * MAX_YOLO_ANCHOR_NUM * 2];
+    float anchor_scale[MAX_YOLO_INPUT_NUM];
+    int clip_box;
+}__attribute__((packed)) tpu_kernel_api_yolov5NMS_t;
+
 namespace bm {
 
     /**
-     * @todo: add config interface(mask, thresholds, anchors ...)
+     * @todo: add config interface(thresholds, anchors ...)
     */
     int yolov5(int outNum, const TensorVec &outTensors, OutputType &postOut, ContextPtr ctx)
     {
@@ -27,13 +47,12 @@ namespace bm {
 
         int out_len_max = 200 * 7;
         int batch_num = ctx->batchSize;
-        float mask[9] = {6, 7, 8, 3, 4, 5, 0, 1, 2};
         float bias[18] = {10, 13, 16, 30, 33, 23, 30, 61, 62,
                           45, 59, 119, 116, 90, 156, 198, 373, 326};
         float downsample[3] = {8, 16, 32};
         int num_anchors = 3;
         float nms_threshold = 0.5;
-        float confidence_threshold = 0.1;
+        float confidence_threshold = 0.5;
         int keep_top_k = 200;
         bm_device_mem_t in_dev_mem[outNum];
         bm_device_mem_t out_dev_mem;
@@ -54,11 +73,8 @@ namespace bm {
 
         auto dt_num_data = new int32_t[batch_num];
         detect_num.dtype = BM_UINT32;
-        detect_num.shape[0] = 1;
-        detect_num.shape[1] = 1;
-        detect_num.shape[2] = 1;
-        detect_num.shape[3] = 1;
-        detect_num.dims = 4;
+        detect_num.shape[0] = batch_num;
+        detect_num.dims = 1;
         detect_num.data = reinterpret_cast<uint8_t *>(dt_num_data);
 
         bm_status_t ret = BM_SUCCESS;
@@ -87,7 +103,6 @@ namespace bm {
 
         api.num_classes = outTensors[0]->shape(1) / num_anchors - 5;
         api.num_boxes = num_anchors;
-        api.mask_group_size = 3;
         api.keep_top_k = keep_top_k;
         api.nms_threshold = nms_threshold;
         api.confidence_threshold = confidence_threshold;
@@ -96,8 +111,7 @@ namespace bm {
         {
             api.anchor_scale[i] = downsample[i];
         }
-        memcpy((void *)api.mask, mask, 9 * sizeof(float));
-        api.clip_box = 1;
+        api.clip_box = 0;
 
         // std::chrono::steady_clock::time_point starts;
         // starts = std::chrono::steady_clock::now();
@@ -114,11 +128,13 @@ namespace bm {
                                      batch_num * sizeof(int32_t),
                                      0);
         output_tensor.shape[2] = *dt_num_data;
-        bm_memcpy_d2s_partial_offset(ctx->handle,
-                                     (void *)output_data,
-                                     out_dev_mem,
-                                     output_tensor.shape[2] * output_tensor.shape[3] * sizeof(float),
-                                     0);
+        if (*dt_num_data != 0) {
+            bm_memcpy_d2s_partial_offset(ctx->handle,
+                                         (void *)output_data,
+                                         out_dev_mem,
+                                         output_tensor.shape[2] * output_tensor.shape[3] * sizeof(float),
+                                         0);
+        }
 
         // bm_get_profile(ctx->handle, &end);
 

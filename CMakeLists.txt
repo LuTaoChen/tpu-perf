@@ -6,14 +6,11 @@ project(tpu-perf)
 
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
-if (DEFINED ENV{TPUKERNEL_TOP})
-    set(TPUKERNEL_TOP $ENV{TPUKERNEL_TOP})
+if (DEFINED ENV{TPUKERNEL_DIR})
+    set(TPUKERNEL_DIR $ENV{TPUKERNEL_DIR})
     add_definitions(-DUSING_TPUKERNEL)
 endif()
 
-set(inc_dirs ${TPUKERNEL_TOP}/samples/include
-                ${TPUKERNEL_TOP}/samples/build
-        CACHE INTERNAL "")
 include_directories(${inc_dirs})
 
 find_package(sg REQUIRED)

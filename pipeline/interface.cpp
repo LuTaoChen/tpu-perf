@@ -5,10 +5,7 @@
 #include "SGDevicePool.h"
 #include "SGLog.h"
 #include "interface.h"
-
-#if defined(USING_TPUKERNEL)
 #include "tpu_kernels.hpp"
-#endif
 
 using namespace bm;
 
@@ -89,13 +86,11 @@ bool postProcess(const InputType& input, const TensorVec& outTensors, OutputType
     size_t outNum = outTensors.size();
     postOut.num = outNum;
     postOut.tensors = new tensor_data_t[outNum];
-#if defined(USING_TPUKERNEL)
     tpu_kernel_function_t func_id = ctx->getKernelFuncId();
     if (func_id != -1) {
         function_map[ctx->kernel_name](outNum, outTensors, postOut, ctx);
         return true;
     }
-#endif
     for(size_t i=0; i<outNum; i++){
         postOut.tensors[i].dims = outTensors[i]->dims();
         for(size_t d=0; d<postOut.tensors[i].dims; d++){
