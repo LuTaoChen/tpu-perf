@@ -44,6 +44,7 @@ class BuildTree:
         if args.outdir:
             outdir = args.outdir
         global_config['outdir'] = os.path.join(root, outdir)
+        os.makedirs(global_config['outdir'], exist_ok=True)
 
         self.cases = []
         if not args.full:
@@ -58,6 +59,8 @@ class BuildTree:
                 self.cases = args.models
         global_config['target'] = self.target = args.target
         global_config['devices'] = args.devices
+
+        self.args = args
 
         # Target specific configs
         if self.target in global_config:
@@ -77,6 +80,7 @@ class BuildTree:
         parser.add_argument('--full', action='store_true', help='Run all cases')
         parser.add_argument('--outdir', '-o', type=str, help='Output path')
         parser.add_argument('--list', '-l', type=str, help='Case list')
+        parser.add_argument('--mlir', action='store_true')
         parser.add_argument('--devices', '-d',
             type=int, nargs='*', help='Devices',
             default=[0])
@@ -228,6 +232,16 @@ class BuildTree:
             config = dict_override(config, specific)
 
         config = dict_override(config, context)
+
+        mlir_fields = ['mlir_transform', 'deploy', 'mlir_calibration']
+        if self.args.mlir and all(f not in config for f in mlir_fields):
+            return
+        nntc_fields = ['fp_compile_options', 'time_only_cali', 'cali', 'bmnetu_options']
+        if not self.args.mlir and all(f not in config for f in nntc_fields):
+            return
+
+        if self.args.mlir:
+            config['target'] = self.target.lower()
 
         if 'name' not in config:
             logging.error(f'Invalid config {config_fn}')
