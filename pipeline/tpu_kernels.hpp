@@ -49,6 +49,18 @@ typedef struct {
 }__attribute__((packed)) tpu_kernel_api_yolov5NMS_v2_t;
 
 
+typedef struct {
+    u64 bottom_addr;
+    u64 top_addr;
+    u64 detected_num_addr;
+    int input_shape[3];
+    int keep_top_k;
+    float nms_threshold;
+    float confidence_threshold;
+    int agnostic_nms;
+    int max_hw;
+}__attribute__((packed)) tpu_kernel_api_yolov8NMS_t;
+
 namespace bm {
 
     /**
@@ -277,11 +289,84 @@ namespace bm {
         return 0;
     }
 
+    int yolov8_decode(int outNum, const TensorVec &outTensors, OutputType &postOut, ContextPtr ctx) {
+        tpu_kernel_function_t func_id;
+        func_id = ctx->getKernelFuncId();
+
+        int input_shape[3] = {1, 84, 8400};
+        int keep_top_k = 300;
+        int out_len_max = keep_top_k * 7;
+        int batch_num = ctx->batchSize;
+        float nms_threshold = 0.5;
+        float confidence_threshold = 0.1;
+        
+        bm_device_mem_t in_dev_mem;
+        bm_device_mem_t out_dev_mem;
+        bm_device_mem_t detect_num_mem;
+        postOut.num = 2;
+        postOut.tensors = new tensor_data_t[2];
+
+        tensor_data_t &output_tensor = postOut.tensors[0];
+        tensor_data_t &detect_num = postOut.tensors[1];
+        auto output_data = new float[batch_num * keep_top_k * 7];
+        output_tensor.dtype = BM_FLOAT32;
+        output_tensor.shape[0] = 1;
+        output_tensor.shape[1] = 1;
+        output_tensor.shape[2] = 1;
+        output_tensor.shape[3] = 7;
+        output_tensor.dims = 4;
+        output_tensor.data = reinterpret_cast<uint8_t *>(output_data);
+
+        auto dt_num_data = new int32_t[batch_num];
+        detect_num.dtype = BM_UINT32;
+        detect_num.shape[0] = batch_num;
+        detect_num.dims = 1;
+        detect_num.data = reinterpret_cast<uint8_t *>(dt_num_data);
+
+        bm_status_t ret = BM_SUCCESS;
+
+        ret = bm_malloc_device_byte(ctx->handle, &out_dev_mem, out_len_max * sizeof(float));
+        assert(BM_SUCCESS == ret);
+        ret = bm_malloc_device_byte(ctx->handle, &detect_num_mem, batch_num * sizeof(int32_t));
+        assert(BM_SUCCESS == ret);
+
+        //  ============================ config ============================
+        tpu_kernel_api_yolov8NMS_t api;
+        in_dev_mem = *outTensors[0]->get_device_mem();
+        api.bottom_addr = bm_mem_get_device_addr(in_dev_mem);
+        api.top_addr = bm_mem_get_device_addr(out_dev_mem);
+        api.detected_num_addr = bm_mem_get_device_addr(detect_num_mem);
+        api.keep_top_k = keep_top_k;
+        api.nms_threshold = nms_threshold;
+        api.confidence_threshold = confidence_threshold;
+        memcpy((void *)api.input_shape, input_shape, 3 * sizeof(int));
+        api.agnostic_nms = 0;
+        api.max_hw = 640;
+
+        tpu_kernel_launch(ctx->handle, func_id, &api, sizeof(api));
+        bm_thread_sync(ctx->handle);
+
+        bm_memcpy_d2s_partial_offset(ctx->handle,
+                                     (void *)dt_num_data,
+                                     detect_num_mem,
+                                     batch_num * sizeof(int32_t),
+                                     0);
+        output_tensor.shape[2] = *dt_num_data;
+        if (*dt_num_data != 0) {
+            bm_memcpy_d2s_partial_offset(ctx->handle,
+                                         (void *)output_data,
+                                         out_dev_mem,
+                                         output_tensor.shape[2] * output_tensor.shape[3] * sizeof(float),
+                                         0);
+        }
+        return 0;
+    }
     std::map< string, std::function<int(int, const TensorVec&,
                                         OutputType&, ContextPtr)>> function_map = 
     {
         { "tpu_kernel_api_yolov5_detect_out", yolov5_decode },
-        { "tpu_kernel_api_yolov5_out_without_decode", yolov5_without_decode }
+        { "tpu_kernel_api_yolov5_out_without_decode", yolov5_without_decode },
+        { "tpu_kernel_api_yolov8_detect_out", yolov8_decode },
     };
 
 }
