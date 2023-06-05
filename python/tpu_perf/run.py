@@ -152,7 +152,7 @@ def run_model(tree, config, name, b, profile_path, bmodel, stat_f, extra):
     if tree.global_config['target'] == 'BM1684':
         if config['prec'] == 'FP32':
             mac_total = 2.2
-        elif config['prec'] == 'INT8':
+        elif config['prec'].startswith('INT8'):
             mac_total = 17.6
         else:
             logging.error(f'Invalid prec type "{config["prec"]}" for BM1684')
@@ -163,7 +163,7 @@ def run_model(tree, config, name, b, profile_path, bmodel, stat_f, extra):
             mac_total = 2
         elif config['prec'] == 'FP16' or config['prec'] == 'BF16':
             mac_total = 16
-        elif config['prec'] == 'INT8':
+        elif config['prec'].startswith('INT8'):
             mac_total = 32
         else:
             logging.error(f'Invalid prec type "{config["prec"]}" for BM1684')
@@ -179,9 +179,9 @@ def run_model(tree, config, name, b, profile_path, bmodel, stat_f, extra):
         logging.warning(f'No GOPs in config.yaml, {config["name"]}')
         row.append('N/A')
     if info is not None:
-        s2l = info['S2L']
-        l2s = info['L2S']
-        s2s = info['S2S']
+        s2l = info.get('S2L', math.nan)
+        l2s = info.get('L2S', math.nan)
+        s2s = info.get('S2S', math.nan)
         calc_ddr_bandwidth = lambda t: \
             (s2l + l2s + s2s * 2) / t * 1000 / 1024**3 / ddr_total
 
@@ -238,10 +238,11 @@ def run_mlir(tree, path, raw_config, stat_f, extra):
         prec = args.quantize
         if re.match('^F\d+$', prec):
             prec = prec.replace('F', 'FP')
-        raw_config['prec'] = prec
+
         name = prec
         if args.asymmetric:
             name += '-asym'
+        raw_config['prec'] = name
 
         ok = run_model(
             tree, raw_config,
@@ -378,7 +379,7 @@ def main():
                 'cpu_usage'])
 
         for path, config in tree.walk():
-            ok = ok and run_func(tree, path, config, csv_f, extra)
+            ok = run_func(tree, path, config, csv_f, extra) and ok
 
     sys.exit(255 if not ok else 0)
 
