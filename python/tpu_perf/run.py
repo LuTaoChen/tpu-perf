@@ -46,17 +46,34 @@ def parse_stats(string):
 
     return ret
 
+def read_profile(fn):
+    parse_result = parse_profile(fn)
+    sum = {}
+    for data in parse_result:
+        for key,value in data.items():
+            if key == 'flops':
+                sum[key] = data[key]
+                continue
+            if key in sum:
+                sum[key] += data[key]
+            else:
+                sum[key] = data[key]
+    return sum
+
 def parse_profile(fn):
-    with open(fn) as f:
+    with open(fn, errors='ignore') as f:
         lines = f.read()
     if not lines:
         return
-    lines = lines[lines.find('API_END'):]
-    data = dict()
-    for pair in re.finditer('(\w+) *: *([\d\.]+)', lines):
-        v = pair.group(2)
-        data[pair.group(1)] = float(v) if '.' in v else int(v)
-    return data
+    lines = re.split('\\s*API_END\\s*|\\s*ENGINE_BD\\s*', lines)[2::2]
+    result = []
+    for string in lines:
+        data = dict()
+        for pair in re.finditer('(\w+) *: *([\d\.]+)', string):
+            v = pair.group(2)
+            data[pair.group(1)] = float(v) if '.' in v else int(v)
+        result.append(data)
+    return result
 
 def format_float(v):
     if v > 0.1:
@@ -81,7 +98,7 @@ def run_model(tree, config, name, b, profile_path, bmodel, stat_f, extra):
     info = None
     rounds = None
     if os.path.exists(profile_path):
-        info = parse_profile(profile_path)
+        info = read_profile(profile_path)
         if info is not None:
             rounds = int(1200 / info['runtime'])
             max_rounds = 10000
@@ -116,7 +133,7 @@ def run_model(tree, config, name, b, profile_path, bmodel, stat_f, extra):
         else:
             logging.warning(f'{full_name} has no reference data')
     else:
-        logging.warning(f'Runtime compare {full_name} skpped')
+        logging.warning(f'Runtime compare {full_name} skipped')
     cmd_opts.extend([iter_opt, str(int(rounds))])
     logging.info(f'Runtime test {full_name} x{int(rounds)}')
     pool.put(
@@ -149,29 +166,29 @@ def run_model(tree, config, name, b, profile_path, bmodel, stat_f, extra):
         format_float(real_time)]
 
     # If profile exists, calculate mac & ddr utilization
-    if tree.global_config['target'] == 'BM1684':
-        if config['prec'] == 'FP32':
-            mac_total = 2.2
-        elif config['prec'].startswith('INT8'):
-            mac_total = 17.6
-        else:
-            logging.error(f'Invalid prec type "{config["prec"]}" for BM1684')
-            raise RuntimeError('Invalid prec')
-        ddr_total = 32
-    elif tree.global_config['target'] == 'BM1684X':
-        if config['prec'] == 'FP32':
-            mac_total = 2
-        elif config['prec'] == 'FP16' or config['prec'] == 'BF16':
-            mac_total = 16
-        elif config['prec'].startswith('INT8'):
-            mac_total = 32
-        else:
-            logging.error(f'Invalid prec type "{config["prec"]}" for BM1684')
-            raise RuntimeError('Invalid prec')
-        ddr_total = 64
-    else:
-        logging.error(f'Invalid target {tree.global_config["target"]}')
-        raise RuntimeError('Invalid target')
+    mac_configs = {
+        'BM1684':  {'FP32': 2.2, 'INT8': 17.6},
+        'BM1684X': {'FP32': 2, 'FP16': 16, 'BF16': 16, 'INT8': 32},
+        'BM1686':  {'FP32': 0.25, 'FP16': 2, 'BF16': 2, 'INT8': 8},
+        'BM1688':  {'FP32': 0.25, 'FP16': 2, 'BF16': 2, 'INT8': 8},
+        'CV186X':  {'FP32': 0.09375, 'FP16': 0.75, 'BF16': 0.75, 'INT8': 3}
+    }
+    ddr_configs = {
+        'BM1684': 32,
+        'BM1684X': 64,
+        'BM1686': 24,
+        'BM1688': 24,
+        'CV186X': 12}
+    target = tree.global_config['target']
+    prec = config['prec']
+    if prec.startswith('INT8'):
+        prec = 'INT8'
+    mac_total = mac_configs.get(target).get(prec)
+    ddr_total = ddr_configs.get(target)
+    if mac_total is None or ddr_total is None:
+        logging.error('Invalid config for {} {}'.format(target, config['prec']))
+        raise RuntimeError('Invalid config')
+
     if 'gops' in config:
         calc_mac_util = lambda t: config['gops'] * b / t / mac_total
         row.append(f'{calc_mac_util(real_time):.2%}')
@@ -218,8 +235,8 @@ def run_mlir(tree, path, raw_config, stat_f, extra):
         help="set default qauntization type: F32/BF16/F16/INT8")
     parser.add_argument(
         "--chip", required=True, type=str.lower,
-        choices=['bm1686', 'bm1684x', 'bm1684',
-            'cv183x', 'cv182x', 'cv181x', 'cv180x'],
+        choices=['bm1688', 'bm1686', 'bm1684x', 'bm1684',
+            'cv186x', 'cv183x', 'cv182x', 'cv181x', 'cv180x'],
         help="chip platform name")
     parser.add_argument("--model", required=True, help='output model')
     parser.add_argument(

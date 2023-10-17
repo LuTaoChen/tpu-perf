@@ -7,6 +7,7 @@ from .buildtree import check_buildtree, BuildTree
 from .subp import CommandExecutor, sys_memory_size
 from .util import *
 import time
+import json
 
 def replace_shape_batch(cmd, batch_size):
     match = re.search('-shapes(=| *)["\']?((\[[\\d, ]+\],?)+)["\']?', cmd)
@@ -28,6 +29,7 @@ option_time_only = False
 
 import glob
 from functools import reduce
+
 def files_equal(inputs, output):
     if not os.path.exists(output):
         return False
@@ -218,6 +220,7 @@ def main():
     parser = argparse.ArgumentParser(description='tpu-perf benchmark tool')
     parser.add_argument('--time', action='store_true')
     parser.add_argument('--exit-on-error', action='store_true')
+    parser.add_argument('--report', type=str, help='report model compilation results to the specified json file')
     BuildTree.add_arguments(parser)
     args = parser.parse_args()
     global option_time_only
@@ -237,22 +240,32 @@ def main():
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
     ret = 0
+    futures = {}
+    succ_cases, failed_cases = [], []
+
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futures = []
-
         for path, config in tree.walk():
-            f = executor.submit(build_fn, tree, path, config)
-            futures.append(f)
+            future = executor.submit(build_fn, tree, path, config)
+            futures[config['name']] = future
 
-        for f in as_completed(futures):
-            err = f.exception()
-            if err:
+        for f in as_completed(futures.values()):
+            try:
+                succ_cases.append(next(key for key, value in futures.items() if value == f))
+            except Exception as err:
                 if args.exit_on_error:
                     logging.error(f'Quit because of exception, {err}')
                     os._exit(-1)
                 else:
                     logging.warning(f'Task failed, {err}')
+                    failed_cases.append(next(key for key, value in futures.items() if value == f))
                     ret = -1
+
+        if args.report:
+            output_fn = f'{args.report}'
+            params = {"succ_cases": list(set(succ_cases)), "failed_cases": list(set(failed_cases))}
+            with open(output_fn, 'w') as f:
+                json.dump(params, f)
+
     sys.exit(ret)
 
 if __name__ == '__main__':
