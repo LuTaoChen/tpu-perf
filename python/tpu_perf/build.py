@@ -71,6 +71,8 @@ def build_mlir(tree, path, config):
 
     workdir = config['workdir']
     name = config['name']
+    if config['model_name'] and name != config['model_name']:
+        return
     env = [
         tree.expand_variables(config, v)
         for v in config.get('mlir_build_env', [])]
@@ -90,25 +92,28 @@ def build_mlir(tree, path, config):
         pool.wait()
         logging.info(f'Calibrate MLIR {name} done')
 
-    if 'deploy' in config:
-        logging.info(f'Deploying {name}...')
-        if type(config['deploy']) != list:
-            config['deploy'] = [config['deploy']]
-        fns = [fn for fn in os.listdir(workdir) if fn.endswith('npz')]
-        for i, deploy in enumerate(config['deploy']):
-            title = f'mlir_deploy.{i}'
-            cwd = os.path.join(workdir, title)
-            os.makedirs(cwd, exist_ok=True)
-            for fn in fns:
-                shutil.copyfile(
-                    os.path.join(workdir, fn),
-                    os.path.join(cwd, fn))
-            pool.put(
-                title,
-                tree.expand_variables(config, deploy),
-                cwd=cwd)
-            pool.wait()
-        logging.info(f'Deploy {name} done')
+    for i in range(len(config['core_list'])):
+        config['num_core'] = config['core_list'][i]
+
+        if 'deploy' in config:
+            logging.info(f'Deploying {name}_{config["num_core"]}_core...')
+            if type(config['deploy']) != list:
+                config['deploy'] = [config['deploy']]
+            fns = [fn for fn in os.listdir(workdir) if fn.endswith('npz')]
+            for j, deploy in enumerate(config['deploy']):
+                title = f'mlir_deploy_core{config["num_core"]}.{j}'
+                cwd = os.path.join(workdir, title)
+                os.makedirs(cwd, exist_ok=True)
+                for fn in fns:
+                    shutil.copyfile(
+                        os.path.join(workdir, fn),
+                        os.path.join(cwd, fn))
+                pool.put(
+                    title,
+                    tree.expand_variables(config, deploy),
+                    cwd=cwd)
+                pool.wait()
+            logging.info(f'Deploy {name}_{config["num_core"]}_core done')
 
 def build_nntc(tree, path, config):
     build_common(tree, path, config)
@@ -246,10 +251,13 @@ def main():
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         for path, config in tree.walk():
             future = executor.submit(build_fn, tree, path, config)
+            if config['model_name'] and config['name'] != config['model_name']:
+                continue
             futures[config['name']] = future
 
         for f in as_completed(futures.values()):
             try:
+                result = f.result()
                 succ_cases.append(next(key for key, value in futures.items() if value == f))
             except Exception as err:
                 if args.exit_on_error:
