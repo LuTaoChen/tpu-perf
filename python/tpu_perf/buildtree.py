@@ -53,10 +53,11 @@ class BuildTree:
             if args.list:
                 with open(args.list) as f:
                     lines = [l.strip(' \n') for l in f.readlines()]
-                    lines = [l for l in lines if l]
+                    lines = [l for l in lines if l and os.path.exists(os.path.join(root, l))]
                 self.cases = lines
             if args.models:
                 self.cases = args.models
+            logging.info(f"fetch {len(self.cases)} cases.")
         global_config['target'] = self.target = args.target
         global_config['devices'] = args.devices
 
@@ -90,6 +91,9 @@ class BuildTree:
             help='Target chip')
         parser.add_argument(
             '--model_name', nargs='?', type=str, help='Model name')
+        parser.add_argument(
+            '--num_core', '-c', type=int, choices=[1, 2, 8], default=1, 
+            help='The number of TPU cores used for parallel computation')
 
     def read_global_variable(self, name, config = dict(), default=None):
         if default is None and name not in self.global_config:
@@ -223,6 +227,7 @@ class BuildTree:
 
         with open(config_fn) as f:
             config = yaml.load(f, yaml.Loader)
+            config["config_fn"] = config_fn
 
         if not config:
             return
@@ -268,7 +273,7 @@ class BuildTree:
                     config['core_list'] = core_values
                     break
         else:
-            config['core_list'] = [1]
+            config['core_list'] = [self.args.num_core]
 
         
         config['model_name'] = self.args.model_name
